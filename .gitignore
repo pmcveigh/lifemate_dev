@@ -1,0 +1,44 @@
+# System
+__pycache__/
+*.py[cod]
+*.DS_Store
+*.swp
+
+# IDE
+.vscode/
+.idea/
+
+# Environment
+.env
+*.env
+
+# OS junk
+Thumbs.db
+
+# Backend build and virtualenv
+backend/.venv/
+backend/__pycache__/
+backend/migrations/__pycache__/
+backend/data/*.db
+backend/data/*.sqlite
+backend/data/*.bak
+backend/data/*.tmp
+backend/data/*.json.tmp
+
+# Frontend node deps and build outputs
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/.env.local
+frontend/.env.development.local
+frontend/.env.production.local
+
+# Test and logs
+logs/
+*.log
+coverage/
+pytest_cache/
+
+# Obsidian vault cache
+.obsidian/
+
