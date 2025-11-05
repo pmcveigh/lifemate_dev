@@ -11,11 +11,13 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise ValueError("DATABASE_URL is not set in environment file")
 
+CONNECT_ARGS = {"options": "-c search_path=lifemate,public"}
+
 engine = create_engine(
     DATABASE_URL,
     pool_pre_ping=True,
-    connect_args={"options": "-c search_path=lifemate,public"},
-)
+    connect_args=CONNECT_ARGS,
+    )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
