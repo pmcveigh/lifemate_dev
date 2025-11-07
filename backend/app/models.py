@@ -3,6 +3,7 @@ from sqlalchemy import Column, Integer, String, Text, Enum, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
 from app.database import Base
 from app.schemas.ticket import TicketStatus
+from app.models.user import User, UserRole  # noqa: F401
 
 class Ticket(Base):
     __tablename__ = "tickets"

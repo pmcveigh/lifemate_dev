@@ -1,18 +1,20 @@
 from datetime import datetime
+
 from sqlalchemy import (
+    Boolean,
     Column,
+    DateTime,
+    Enum,
+    ForeignKey,
     Integer,
     String,
     Text,
-    Enum,
-    DateTime,
-    ForeignKey,
-    Boolean,
 )
 from sqlalchemy.orm import relationship
-from sqlalchemy import Integer
+
 from app.database import Base
 from app.schemas.ticket import TicketStatus
+
 
 class Ticket(Base):
     __tablename__ = "tickets"
@@ -23,12 +25,13 @@ class Ticket(Base):
     category = Column(String(100), nullable=True)
     room = Column(String(100), nullable=True)
     assignee = Column(String(100), nullable=True)
-    priority = Column(Integer, nullable=True)   # ← add it right here
+    priority = Column(Integer, nullable=True)  # ← add it right here
     position = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     comments = relationship("Comment", back_populates="ticket", cascade="all, delete-orphan")
     tasks = relationship("Task", back_populates="ticket", cascade="all, delete-orphan")
+
 
 class Comment(Base):
     __tablename__ = "comments"
@@ -44,6 +47,7 @@ class Comment(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     ticket = relationship("Ticket", back_populates="comments")
 
+
 class Task(Base):
     __tablename__ = "tasks"
     id = Column(Integer, primary_key=True, index=True)
@@ -58,4 +62,15 @@ class Task(Base):
     eta = Column(DateTime, nullable=True)
     position = Column(Integer, nullable=False, default=0)
     ticket = relationship("Ticket", back_populates="tasks")
+
+
+from .user import User, UserRole
+
+__all__ = [
+    "Ticket",
+    "Comment",
+    "Task",
+    "User",
+    "UserRole",
+]
 

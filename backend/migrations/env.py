@@ -7,7 +7,7 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 from app.database import Base, DATABASE_URL, CONNECT_ARGS
-from app.models import Ticket, Comment, Task  # ensure models are imported
+from app.models import Comment, Task, Ticket, User  # ensure models are imported
 
 config.set_main_option("sqlalchemy.url", DATABASE_URL)
 target_metadata = Base.metadata
