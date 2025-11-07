@@ -1,7 +1,7 @@
 from datetime import datetime
 from enum import Enum
 from typing import Optional, List
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 class TicketStatus(str, Enum):
     backlog = "backlog"
@@ -51,14 +51,14 @@ class TicketBase(BaseModel):
     assignee: Optional[str] = None
 
 class TicketCreate(TicketBase):
-    comments: List[CommentCreate] = []
-    tasks: List[TaskCreate] = []
+    comments: List[CommentCreate] = Field(default_factory=list)
+    tasks: List[TaskCreate] = Field(default_factory=list)
 
 class TicketRead(TicketBase):
     id: int
     position: int
-    comments: List[CommentRead] = []
-    tasks: List[TaskRead] = []
+    comments: List[CommentRead] = Field(default_factory=list)
+    tasks: List[TaskRead] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 
@@ -70,4 +70,3 @@ class TicketUpdate(BaseModel):
     room: Optional[str] = None
     assignee: Optional[str] = None
     position: Optional[int] = None
-
