@@ -8,6 +8,23 @@ const STATUS_COLUMNS = [
   { key: "done", label: "Done" },
 ];
 
+const SMALL_BUTTON_STYLE = {
+  padding: "0.2rem 0.45rem",
+  fontSize: "0.75rem",
+  borderRadius: "0.3rem",
+  border: "1px solid #d1d5db",
+  background: "#f3f4f6",
+  color: "#111827",
+  cursor: "pointer",
+};
+
+const DANGER_SMALL_BUTTON_STYLE = {
+  ...SMALL_BUTTON_STYLE,
+  color: "#b91c1c",
+  borderColor: "#fca5a5",
+  background: "#fee2e2",
+};
+
 export default function App() {
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -33,10 +50,39 @@ export default function App() {
   const [creatingTask, setCreatingTask] = useState(false);
   const [taskError, setTaskError] = useState("");
   const [draggingTicketId, setDraggingTicketId] = useState(null);
+  const [editingTicket, setEditingTicket] = useState(false);
+  const [ticketForm, setTicketForm] = useState({
+    title: "",
+    description: "",
+    status: "todo",
+    category: "",
+    room: "",
+    assignee: "",
+  });
+  const [ticketUpdateError, setTicketUpdateError] = useState("");
+  const [ticketUpdateLoading, setTicketUpdateLoading] = useState(false);
+  const [editingComment, setEditingComment] = useState(null);
+  const [commentActionError, setCommentActionError] = useState("");
+  const [commentActionLoading, setCommentActionLoading] = useState(false);
+  const [editingTask, setEditingTask] = useState(null);
+  const [taskActionLoading, setTaskActionLoading] = useState(false);
 
   useEffect(() => {
     fetchTickets("");
   }, []);
+
+  useEffect(() => {
+    if (selectedTicket) {
+      setTicketForm({
+        title: selectedTicket.title || "",
+        description: selectedTicket.description || "",
+        status: selectedTicket.status || "todo",
+        category: selectedTicket.category || "",
+        room: selectedTicket.room || "",
+        assignee: selectedTicket.assignee || "",
+      });
+    }
+  }, [selectedTicket]);
 
   async function fetchTickets(query) {
     try {
@@ -117,6 +163,230 @@ export default function App() {
     setNewTaskText("");
     setNewTaskEta("");
     setTaskError("");
+    setEditingTicket(false);
+    setTicketUpdateError("");
+    setTicketUpdateLoading(false);
+    setTicketForm({
+      title: ticket.title || "",
+      description: ticket.description || "",
+      status: ticket.status || "todo",
+      category: ticket.category || "",
+      room: ticket.room || "",
+      assignee: ticket.assignee || "",
+    });
+    setEditingComment(null);
+    setCommentActionError("");
+    setCommentActionLoading(false);
+    setEditingTask(null);
+    setTaskActionLoading(false);
+  }
+
+  function handleTicketDetailChange(field, value) {
+    setTicketForm((prev) => ({ ...prev, [field]: value }));
+  }
+
+  async function handleUpdateTicketDetails(e) {
+    e.preventDefault();
+    if (!selectedTicket) return;
+    setTicketUpdateError("");
+    setTicketUpdateLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/tickets/${selectedTicket.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: ticketForm.title,
+          description: ticketForm.description,
+          status: ticketForm.status,
+          category: ticketForm.category,
+          room: ticketForm.room,
+          assignee: ticketForm.assignee,
+        }),
+      });
+      if (!res.ok) {
+        const t = await res.text();
+        throw new Error(t || `Update failed: ${res.status}`);
+      }
+      setEditingTicket(false);
+      await fetchTickets(activeQuery);
+    } catch (err) {
+      setTicketUpdateError(err.message);
+    } finally {
+      setTicketUpdateLoading(false);
+    }
+  }
+
+  function handleCancelTicketEdit() {
+    if (!selectedTicket) {
+      setEditingTicket(false);
+      return;
+    }
+    setTicketForm({
+      title: selectedTicket.title || "",
+      description: selectedTicket.description || "",
+      status: selectedTicket.status || "todo",
+      category: selectedTicket.category || "",
+      room: selectedTicket.room || "",
+      assignee: selectedTicket.assignee || "",
+    });
+    setTicketUpdateError("");
+    setEditingTicket(false);
+  }
+
+  function formatDateTimeLocal(value) {
+    if (!value) return "";
+    const date = new Date(value);
+    const offsetMs = date.getTimezoneOffset() * 60 * 1000;
+    const local = new Date(date.getTime() - offsetMs);
+    return local.toISOString().slice(0, 16);
+  }
+
+  function handleStartEditComment(comment) {
+    setEditingComment({
+      id: comment.id,
+      author: comment.author || "",
+      text: comment.text || "",
+    });
+    setCommentActionError("");
+  }
+
+  function handleCancelEditComment() {
+    setEditingComment(null);
+    setCommentActionError("");
+  }
+
+  async function handleSaveCommentEdit(e) {
+    e.preventDefault();
+    if (!selectedTicket || !editingComment) return;
+    if (!editingComment.text.trim()) {
+      setCommentActionError("Comment text required");
+      return;
+    }
+    setCommentActionError("");
+    setCommentActionLoading(true);
+    try {
+      const res = await fetch(
+        `${API_URL}/tickets/${selectedTicket.id}/comments/${editingComment.id}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            author: editingComment.author ? editingComment.author : null,
+            text: editingComment.text,
+          }),
+        }
+      );
+      if (!res.ok) {
+        const t = await res.text();
+        throw new Error(t || `Comment update failed: ${res.status}`);
+      }
+      setEditingComment(null);
+      await fetchTickets(activeQuery);
+    } catch (err) {
+      setCommentActionError(err.message);
+    } finally {
+      setCommentActionLoading(false);
+    }
+  }
+
+  async function handleDeleteComment(commentId) {
+    if (!selectedTicket || commentActionLoading) return;
+    setCommentActionError("");
+    setCommentActionLoading(true);
+    try {
+      const res = await fetch(
+        `${API_URL}/tickets/${selectedTicket.id}/comments/${commentId}`,
+        { method: "DELETE" }
+      );
+      if (!res.ok) {
+        const t = await res.text();
+        throw new Error(t || `Comment delete failed: ${res.status}`);
+      }
+      if (editingComment && editingComment.id === commentId) {
+        setEditingComment(null);
+      }
+      await fetchTickets(activeQuery);
+    } catch (err) {
+      setCommentActionError(err.message);
+    } finally {
+      setCommentActionLoading(false);
+    }
+  }
+
+  function handleStartEditTask(task) {
+    setEditingTask({
+      id: task.id,
+      text: task.text || "",
+      eta: task.eta ? formatDateTimeLocal(task.eta) : "",
+    });
+    setTaskError("");
+  }
+
+  function handleCancelEditTask() {
+    setEditingTask(null);
+  }
+
+  async function handleSaveTaskEdit(e) {
+    e.preventDefault();
+    if (!selectedTicket || !editingTask) return;
+    if (!editingTask.text.trim()) {
+      setTaskError("Task text required");
+      return;
+    }
+    setTaskError("");
+    setTaskActionLoading(true);
+    try {
+      const payload = {
+        text: editingTask.text.trim(),
+      };
+      if (editingTask.eta === "") {
+        payload.eta = null;
+      } else if (editingTask.eta) {
+        payload.eta = new Date(editingTask.eta).toISOString();
+      }
+      const res = await fetch(
+        `${API_URL}/tickets/${selectedTicket.id}/tasks/${editingTask.id}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        }
+      );
+      if (!res.ok) {
+        const t = await res.text();
+        throw new Error(t || `Task update failed: ${res.status}`);
+      }
+      setEditingTask(null);
+      await fetchTickets(activeQuery);
+    } catch (err) {
+      setTaskError(err.message);
+    } finally {
+      setTaskActionLoading(false);
+    }
+  }
+
+  async function handleDeleteTask(taskId) {
+    if (!selectedTicket || taskActionLoading) return;
+    setTaskError("");
+    setTaskActionLoading(true);
+    try {
+      const res = await fetch(
+        `${API_URL}/tickets/${selectedTicket.id}/tasks/${taskId}`,
+        { method: "DELETE" }
+      );
+      if (!res.ok) {
+        const t = await res.text();
+        throw new Error(t || `Task delete failed: ${res.status}`);
+      }
+      if (editingTask && editingTask.id === taskId) {
+        setEditingTask(null);
+      }
+      await fetchTickets(activeQuery);
+    } catch (err) {
+      setTaskError(err.message);
+    } finally {
+      setTaskActionLoading(false);
+    }
   }
 
   async function handleAddCommentToSelected(e) {
@@ -492,33 +762,254 @@ export default function App() {
         >
           <div style={{ display: "flex", gap: "1rem" }}>
             <div style={{ flex: 2, minWidth: 0 }}>
-              <h2 style={{ marginTop: 0 }}>
-                {selectedTicket.title}{" "}
-                <span style={{ fontSize: "0.8rem", color: "#6b7280" }}>
-                  #{selectedTicket.id}
-                </span>
-              </h2>
-              <p style={{ margin: "0.5rem 0" }}>
-                <strong>Status:</strong> {selectedTicket.status} •{" "}
-                <strong>Room:</strong> {selectedTicket.room || "n/a"} •{" "}
-                <strong>Category:</strong> {selectedTicket.category || "n/a"} •{" "}
-                <strong>Assignee:</strong>{" "}
-                {selectedTicket.assignee || "Unassigned"}
-              </p>
-              <p style={{ margin: "0.5rem 0 1rem 0" }}>
-                {selectedTicket.description || "No description"}
-              </p>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "flex-start",
+                  gap: "0.75rem",
+                }}
+              >
+                <h2 style={{ marginTop: 0, marginBottom: 0 }}>
+                  {selectedTicket.title}{" "}
+                  <span style={{ fontSize: "0.8rem", color: "#6b7280" }}>
+                    #{selectedTicket.id}
+                  </span>
+                </h2>
+                {!editingTicket ? (
+                  <button
+                    type="button"
+                    onClick={() => setEditingTicket(true)}
+                    style={SMALL_BUTTON_STYLE}
+                  >
+                    Edit details
+                  </button>
+                ) : null}
+              </div>
+              {editingTicket ? (
+                <form
+                  onSubmit={handleUpdateTicketDetails}
+                  style={{ display: "grid", gap: "0.5rem", maxWidth: "520px" }}
+                >
+                  <input
+                    type="text"
+                    value={ticketForm.title}
+                    onChange={(e) => handleTicketDetailChange("title", e.target.value)}
+                    required
+                    style={{ padding: "0.45rem" }}
+                  />
+                  <textarea
+                    value={ticketForm.description}
+                    onChange={(e) =>
+                      handleTicketDetailChange("description", e.target.value)
+                    }
+                    rows={3}
+                    style={{ padding: "0.45rem" }}
+                  />
+                  <select
+                    value={ticketForm.status}
+                    onChange={(e) => handleTicketDetailChange("status", e.target.value)}
+                    style={{ padding: "0.45rem" }}
+                  >
+                    {STATUS_COLUMNS.map((s) => (
+                      <option key={s.key} value={s.key}>
+                        {s.label}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="text"
+                    placeholder="Category"
+                    value={ticketForm.category}
+                    onChange={(e) => handleTicketDetailChange("category", e.target.value)}
+                    style={{ padding: "0.45rem" }}
+                  />
+                  <input
+                    type="text"
+                    placeholder="Room"
+                    value={ticketForm.room}
+                    onChange={(e) => handleTicketDetailChange("room", e.target.value)}
+                    style={{ padding: "0.45rem" }}
+                  />
+                  <input
+                    type="text"
+                    placeholder="Assignee"
+                    value={ticketForm.assignee}
+                    onChange={(e) => handleTicketDetailChange("assignee", e.target.value)}
+                    style={{ padding: "0.45rem" }}
+                  />
+                  {ticketUpdateError ? (
+                    <div style={{ color: "red", fontSize: "0.85rem" }}>
+                      {ticketUpdateError}
+                    </div>
+                  ) : null}
+                  <div style={{ display: "flex", gap: "0.5rem" }}>
+                    <button
+                      type="submit"
+                      disabled={ticketUpdateLoading}
+                      style={{
+                        padding: "0.45rem 0.8rem",
+                        background: "#2563eb",
+                        color: "white",
+                        border: "none",
+                        borderRadius: "0.3rem",
+                        cursor: "pointer",
+                      }}
+                    >
+                      {ticketUpdateLoading ? "Saving..." : "Save"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleCancelTicketEdit}
+                      disabled={ticketUpdateLoading}
+                      style={{
+                        ...SMALL_BUTTON_STYLE,
+                        background: "#e5e7eb",
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <>
+                  <p style={{ margin: "0.5rem 0" }}>
+                    <strong>Status:</strong> {selectedTicket.status} •{" "}
+                    <strong>Room:</strong> {selectedTicket.room || "n/a"} •{" "}
+                    <strong>Category:</strong> {selectedTicket.category || "n/a"} •{" "}
+                    <strong>Assignee:</strong>{" "}
+                    {selectedTicket.assignee || "Unassigned"}
+                  </p>
+                  <p style={{ margin: "0.5rem 0 1rem 0" }}>
+                    {selectedTicket.description || "No description"}
+                  </p>
+                  {ticketUpdateError ? (
+                    <div style={{ color: "red", fontSize: "0.85rem" }}>
+                      {ticketUpdateError}
+                    </div>
+                  ) : null}
+                </>
+              )}
 
               <div>
                 <h3 style={{ marginBottom: "0.5rem" }}>Comments</h3>
+                {commentActionError ? (
+                  <div style={{ color: "red", fontSize: "0.8rem", marginBottom: "0.5rem" }}>
+                    {commentActionError}
+                  </div>
+                ) : null}
                 {selectedTicket.comments &&
                 selectedTicket.comments.length > 0 ? (
                   <ul style={{ margin: 0, paddingLeft: "1rem" }}>
-                    {selectedTicket.comments.map((c) => (
-                      <li key={c.id} style={{ marginBottom: "0.4rem" }}>
-                        <strong>{c.author || "Anon"}:</strong> {c.text}
-                      </li>
-                    ))}
+                    {selectedTicket.comments.map((c) => {
+                      const isEditing = editingComment && editingComment.id === c.id;
+                      return (
+                        <li key={c.id} style={{ marginBottom: "0.6rem" }}>
+                          {isEditing ? (
+                            <form
+                              onSubmit={handleSaveCommentEdit}
+                              style={{ display: "grid", gap: "0.4rem" }}
+                            >
+                              <input
+                                type="text"
+                                placeholder="Author"
+                                value={editingComment.author}
+                                onChange={(e) =>
+                                  setEditingComment((prev) => ({
+                                    ...prev,
+                                    author: e.target.value,
+                                  }))
+                                }
+                                style={{ padding: "0.35rem" }}
+                              />
+                              <textarea
+                                placeholder="Comment"
+                                value={editingComment.text}
+                                onChange={(e) =>
+                                  setEditingComment((prev) => ({
+                                    ...prev,
+                                    text: e.target.value,
+                                  }))
+                                }
+                                rows={2}
+                                style={{ padding: "0.35rem" }}
+                              />
+                              <div
+                                style={{
+                                  display: "flex",
+                                  gap: "0.4rem",
+                                  justifyContent: "flex-end",
+                                }}
+                              >
+                                <button
+                                  type="submit"
+                                  disabled={commentActionLoading}
+                                  style={{
+                                    padding: "0.35rem 0.6rem",
+                                    background: "#2563eb",
+                                    color: "white",
+                                    border: "none",
+                                    borderRadius: "0.3rem",
+                                    cursor: "pointer",
+                                  }}
+                                >
+                                  {commentActionLoading ? "Saving..." : "Save"}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={handleCancelEditComment}
+                                  disabled={commentActionLoading}
+                                  style={{
+                                    ...SMALL_BUTTON_STYLE,
+                                    background: "#e5e7eb",
+                                  }}
+                                >
+                                  Cancel
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteComment(c.id)}
+                                  disabled={commentActionLoading}
+                                  style={DANGER_SMALL_BUTTON_STYLE}
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                            </form>
+                          ) : (
+                            <div
+                              style={{
+                                display: "flex",
+                                justifyContent: "space-between",
+                                gap: "0.5rem",
+                              }}
+                            >
+                              <div style={{ flex: 1 }}>
+                                <strong>{c.author || "Anon"}:</strong> {c.text}
+                              </div>
+                              <div style={{ display: "flex", gap: "0.3rem" }}>
+                                <button
+                                  type="button"
+                                  onClick={() => handleStartEditComment(c)}
+                                  style={SMALL_BUTTON_STYLE}
+                                  disabled={commentActionLoading}
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteComment(c.id)}
+                                  style={DANGER_SMALL_BUTTON_STYLE}
+                                  disabled={commentActionLoading}
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </li>
+                      );
+                    })}
                   </ul>
                 ) : (
                   <p style={{ color: "#6b7280", fontSize: "0.85rem" }}>
@@ -577,45 +1068,167 @@ export default function App() {
               <h3 style={{ marginTop: 0 }}>Tasks</h3>
               {selectedTicket.tasks && selectedTicket.tasks.length > 0 ? (
                 <div style={{ display: "grid", gap: "0.4rem" }}>
-                  {selectedTicket.tasks.map((task) => (
-                    <label
-                      key={task.id}
-                      style={{
-                        display: "flex",
-                        gap: "0.5rem",
-                        alignItems: "flex-start",
-                        background: "#f9fafb",
-                        border: "1px solid #e5e7eb",
-                        borderRadius: "0.4rem",
-                        padding: "0.4rem 0.5rem",
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={task.completed}
-                        onChange={() => handleToggleTask(task)}
-                        style={{ marginTop: "0.25rem" }}
-                      />
-                      <div style={{ flex: 1 }}>
-                        <div
-                          style={{
-                            textDecoration: task.completed
-                              ? "line-through"
-                              : "none",
-                          }}
-                        >
-                          {task.text}
-                        </div>
-                        {task.eta ? (
-                          <div
-                            style={{ fontSize: "0.7rem", color: "#6b7280" }}
+                  {selectedTicket.tasks.map((task) => {
+                    const isEditingTask = editingTask && editingTask.id === task.id;
+                    return (
+                      <div
+                        key={task.id}
+                        style={{
+                          background: "#f9fafb",
+                          border: "1px solid #e5e7eb",
+                          borderRadius: "0.4rem",
+                          padding: "0.5rem",
+                          display: "grid",
+                          gap: "0.4rem",
+                        }}
+                      >
+                        {isEditingTask ? (
+                          <form
+                            onSubmit={handleSaveTaskEdit}
+                            style={{ display: "grid", gap: "0.4rem" }}
                           >
-                            ETA: {new Date(task.eta).toLocaleString()}
+                            <div
+                              style={{
+                                display: "flex",
+                                gap: "0.5rem",
+                                alignItems: "flex-start",
+                              }}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={task.completed}
+                                onChange={() => handleToggleTask(task)}
+                                style={{ marginTop: "0.25rem" }}
+                                disabled={taskActionLoading}
+                              />
+                              <div style={{ flex: 1, display: "grid", gap: "0.4rem" }}>
+                                <input
+                                  type="text"
+                                  value={editingTask.text}
+                                  onChange={(e) =>
+                                    setEditingTask((prev) => ({
+                                      ...prev,
+                                      text: e.target.value,
+                                    }))
+                                  }
+                                  style={{ padding: "0.4rem" }}
+                                />
+                                <input
+                                  type="datetime-local"
+                                  value={editingTask.eta}
+                                  onChange={(e) =>
+                                    setEditingTask((prev) => ({
+                                      ...prev,
+                                      eta: e.target.value,
+                                    }))
+                                  }
+                                  style={{ padding: "0.4rem" }}
+                                />
+                              </div>
+                            </div>
+                            <div
+                              style={{
+                                display: "flex",
+                                gap: "0.4rem",
+                                justifyContent: "flex-end",
+                              }}
+                            >
+                              <button
+                                type="submit"
+                                disabled={taskActionLoading}
+                                style={{
+                                  padding: "0.4rem 0.6rem",
+                                  background: "#2563eb",
+                                  color: "white",
+                                  border: "none",
+                                  borderRadius: "0.3rem",
+                                  cursor: "pointer",
+                                }}
+                              >
+                                {taskActionLoading ? "Saving..." : "Save"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={handleCancelEditTask}
+                                disabled={taskActionLoading}
+                                style={{
+                                  ...SMALL_BUTTON_STYLE,
+                                  background: "#e5e7eb",
+                                }}
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteTask(task.id)}
+                                disabled={taskActionLoading}
+                                style={DANGER_SMALL_BUTTON_STYLE}
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </form>
+                        ) : (
+                          <div
+                            style={{
+                              display: "flex",
+                              gap: "0.5rem",
+                              alignItems: "flex-start",
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={task.completed}
+                              onChange={() => handleToggleTask(task)}
+                              style={{ marginTop: "0.25rem" }}
+                            />
+                            <div style={{ flex: 1 }}>
+                              <div
+                                style={{
+                                  textDecoration: task.completed
+                                    ? "line-through"
+                                    : "none",
+                                }}
+                              >
+                                {task.text}
+                              </div>
+                              {task.eta ? (
+                                <div
+                                  style={{ fontSize: "0.7rem", color: "#6b7280" }}
+                                >
+                                  ETA: {new Date(task.eta).toLocaleString()}
+                                </div>
+                              ) : null}
+                            </div>
+                            <div
+                              style={{
+                                display: "flex",
+                                flexDirection: "column",
+                                gap: "0.3rem",
+                              }}
+                            >
+                              <button
+                                type="button"
+                                onClick={() => handleStartEditTask(task)}
+                                style={SMALL_BUTTON_STYLE}
+                                disabled={taskActionLoading}
+                              >
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteTask(task.id)}
+                                style={DANGER_SMALL_BUTTON_STYLE}
+                                disabled={taskActionLoading}
+                              >
+                                Delete
+                              </button>
+                            </div>
                           </div>
-                        ) : null}
+                        )}
                       </div>
-                    </label>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : (
                 <p style={{ color: "#6b7280", fontSize: "0.8rem" }}>
