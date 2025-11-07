@@ -92,15 +92,17 @@ def create_new_ticket(body: TicketCreate, db: Session = Depends(get_db)):
             text=c.text,
         )
         db.add(comment)
+        next_task_pos = 0
     for t in body.tasks:
         task = models.Task(
             ticket_id=ticket.id,
             text=t.text,
             eta=t.eta,
             completed=False,
-            position=0,
+            position=next_task_pos,
         )
         db.add(task)
+        next_task_pos += 1
     db.commit()
     db.refresh(ticket)
     return ticket
