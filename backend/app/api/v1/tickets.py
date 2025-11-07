@@ -68,64 +68,67 @@ def get_single_ticket(ticket_id: int, db: Session = Depends(get_db)):
 @router.post("/", response_model=TicketRead, status_code=201)
 def create_new_ticket(body: TicketCreate, db: Session = Depends(get_db)):
     max_pos = (
-        db.query(models.Ticket.position)
-        .filter(models.Ticket.status == body.status)
-        .order_by(models.Ticket.position.desc())
-        .first()
-    )
-    next_pos = (max_pos[0] + 1) if max_pos else 0
-    ticket = models.Ticket(
-        title=body.title,
-        description=body.description,
-        status=body.status,
-        category=body.category,
-        room=body.room,
-        assignee=body.assignee,
-        position=next_pos,
-    )
-    db.add(ticket)
-    db.flush()
-    for c in body.comments:
-        comment = models.Comment(
-            ticket_id=ticket.id,
-            author=c.author,
-            text=c.text,
-        )
-        db.add(comment)
-    for t in body.tasks:
-        task = models.Task(
-            ticket_id=ticket.id,
-            text=t.text,
-            eta=t.eta,
-            completed=False,
-            position=0,
-        )
-        db.add(task)
-    db.commit()
-    db.refresh(ticket)
-    return ticket
-
-@router.patch("/{ticket_id}", response_model=TicketRead)
-def update_existing_ticket(ticket_id: int, body: TicketUpdate, db: Session = Depends(get_db)):
-    ticket = db.query(models.Ticket).filter(models.Ticket.id == ticket_id).first()
-    if not ticket:
-        raise HTTPException(status_code=404, detail="Ticket not found")
-    if body.title is not None:
-        ticket.title = body.title
-    if body.description is not None:
-        ticket.description = body.description
-    if body.status is not None and body.status != ticket.status:
-        max_pos = (
-            db.query(models.Ticket.position)
-            .filter(models.Ticket.status == body.status)
-            .order_by(models.Ticket.position.desc())
-            .first()
-        )
-        next_pos = (max_pos[0] + 1) if max_pos else 0
-        ticket.status = body.status
-        ticket.position = next_pos
-    if body.category is not None:
-        ticket.category = body.category
+         db.query(models.Ticket.position)
+         .filter(models.Ticket.status == body.status)
+         .order_by(models.Ticket.position.desc())
+         .first()
+     )
+     next_pos = (max_pos[0] + 1) if max_pos else 0
+     ticket = models.Ticket(
+         title=body.title,
+         description=body.description,
+         status=body.status,
+         category=body.category,
+         room=body.room,
+         assignee=body.assignee,
+         position=next_pos,
+     )
+     db.add(ticket)
+     db.flush()
+     for c in body.comments:
+         comment = models.Comment(
+             ticket_id=ticket.id,
+             author=c.author,
+             text=c.text,
+         )
+         db.add(comment)
++    next_task_pos = 0
+     for t in body.tasks:
+         task = models.Task(
+             ticket_id=ticket.id,
+             text=t.text,
+             eta=t.eta,
+             completed=False,
+-            position=0,
++            position=next_task_pos,
+         )
+         db.add(task)
++        next_task_pos += 1
+     db.commit()
+     db.refresh(ticket)
+     return ticket
+ 
+ @router.patch("/{ticket_id}", response_model=TicketRead)
+ def update_existing_ticket(ticket_id: int, body: TicketUpdate, db: Session = Depends(get_db)):
+     ticket = db.query(models.Ticket).filter(models.Ticket.id == ticket_id).first()
+     if not ticket:
+         raise HTTPException(status_code=404, detail="Ticket not found")
+     if body.title is not None:
+         ticket.title = body.title
+     if body.description is not None:
+         ticket.description = body.description
+     if body.status is not None and body.status != ticket.status:
+         max_pos = (
+             db.query(models.Ticket.position)
+             .filter(models.Ticket.status == body.status)
+             .order_by(models.Ticket.position.desc())
+             .first()
+         )
+         next_pos = (max_pos[0] + 1) if max_pos else 0
+         ticket.status = body.status
+         ticket.position = next_pos
+     if body.category is not None:
+         ticket.category = body.category
     if body.room is not None:
         ticket.room = body.room
     if body.assignee is not None:
