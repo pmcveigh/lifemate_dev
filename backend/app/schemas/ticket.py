@@ -3,6 +3,8 @@ from enum import Enum
 from typing import Optional, List
 from pydantic import BaseModel, Field
 
+from app.models.user import UserRole
+
 class TicketStatus(str, Enum):
     backlog = "backlog"
     todo = "todo"
@@ -24,6 +26,8 @@ class CommentRead(CommentBase):
     id: int
     created_at: datetime
 
+    model_config = {"from_attributes": True}
+
 class TaskBase(BaseModel):
     text: str
     eta: Optional[datetime] = None
@@ -42,13 +46,23 @@ class TaskRead(TaskBase):
     completed: bool
     position: int
 
+    model_config = {"from_attributes": True}
+
+
+class TicketAssignee(BaseModel):
+    id: int
+    username: str
+    role: UserRole
+
+    model_config = {"from_attributes": True}
+
 class TicketBase(BaseModel):
     title: str
     description: Optional[str] = None
     status: TicketStatus = TicketStatus.todo
     category: Optional[str] = None
     room: Optional[str] = None
-    assignee: Optional[str] = None
+    assignee_id: Optional[int] = None
 
 class TicketCreate(TicketBase):
     comments: List[CommentCreate] = Field(default_factory=list)
@@ -61,6 +75,9 @@ class TicketRead(TicketBase):
     tasks: List[TaskRead] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
+    assignee: Optional[TicketAssignee] = None
+
+    model_config = {"from_attributes": True}
 
 class TicketUpdate(BaseModel):
     title: Optional[str] = None
@@ -68,5 +85,5 @@ class TicketUpdate(BaseModel):
     status: Optional[TicketStatus] = None
     category: Optional[str] = None
     room: Optional[str] = None
-    assignee: Optional[str] = None
+    assignee_id: Optional[int] = None
     position: Optional[int] = None

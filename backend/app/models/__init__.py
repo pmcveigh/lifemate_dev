@@ -24,13 +24,19 @@ class Ticket(Base):
     status = Column(Enum(TicketStatus), nullable=False, default=TicketStatus.todo)
     category = Column(String(100), nullable=True)
     room = Column(String(100), nullable=True)
-    assignee = Column(String(100), nullable=True)
+    assignee_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     priority = Column(Integer, nullable=True)  # ← add it right here
     position = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     comments = relationship("Comment", back_populates="ticket", cascade="all, delete-orphan")
     tasks = relationship("Task", back_populates="ticket", cascade="all, delete-orphan")
+    assignee = relationship("User", back_populates="assigned_tickets")
 
 
 class Comment(Base):

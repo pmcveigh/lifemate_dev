@@ -4,6 +4,7 @@ from datetime import datetime
 from enum import Enum
 
 from sqlalchemy import Column, DateTime, Enum as SQLEnum, Integer, String, UniqueConstraint
+from sqlalchemy.orm import relationship
 
 from app.database import Base
 
@@ -25,4 +26,9 @@ class User(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(
         DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+    assigned_tickets = relationship(
+        "Ticket",
+        back_populates="assignee",
+        foreign_keys="Ticket.assignee_id",
     )

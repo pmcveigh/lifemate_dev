@@ -9,5 +9,6 @@ from .ticket import (
     TaskRead,
     TaskUpdate,
     TicketStatus,
+    TicketAssignee,
 )
 

@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import or_
 from app.deps import get_db
 from app import models
+from app.models.user import User, UserRole
 from app.schemas.ticket import (
     TicketRead,
     TicketCreate,
@@ -17,6 +18,9 @@ from app.schemas.ticket import (
     TaskRead,
     TicketStatus,
 )
+from app.services.auth import get_current_user, require_role
+
+MANAGER_ROLES = (UserRole.home_admin, UserRole.global_admin)
 
 router = APIRouter(prefix="/tickets", tags=["tickets"])
 
@@ -24,6 +28,7 @@ def _ticket_query(db: Session):
     return db.query(models.Ticket).options(
         joinedload(models.Ticket.comments),
         joinedload(models.Ticket.tasks),
+        joinedload(models.Ticket.assignee),
     )
 
 @router.get("/", response_model=List[TicketRead])
@@ -31,9 +36,10 @@ def get_all_tickets(
     status: Optional[TicketStatus] = Query(default=None),
     category: Optional[str] = Query(default=None),
     room: Optional[str] = Query(default=None),
-    assignee: Optional[str] = Query(default=None),
+    assignee_id: Optional[int] = Query(default=None),
     q: Optional[str] = Query(default=None),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     query = _ticket_query(db)
     if status is not None:
@@ -42,8 +48,8 @@ def get_all_tickets(
         query = query.filter(models.Ticket.category == category)
     if room is not None:
         query = query.filter(models.Ticket.room == room)
-    if assignee is not None:
-        query = query.filter(models.Ticket.assignee == assignee)
+    if assignee_id is not None:
+        query = query.filter(models.Ticket.assignee_id == assignee_id)
     if q:
         like = f"%{q}%"
         query = query.filter(
@@ -52,21 +58,30 @@ def get_all_tickets(
                 models.Ticket.description.ilike(like),
                 models.Ticket.category.ilike(like),
                 models.Ticket.room.ilike(like),
-                models.Ticket.assignee.ilike(like),
+                models.Ticket.assignee.has(models.User.username.ilike(like)),
             )
         )
     tickets = query.order_by(models.Ticket.status, models.Ticket.position, models.Ticket.id).all()
     return tickets
 
 @router.get("/{ticket_id}", response_model=TicketRead)
-def get_single_ticket(ticket_id: int, db: Session = Depends(get_db)):
+def get_single_ticket(
+    ticket_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     ticket = _ticket_query(db).filter(models.Ticket.id == ticket_id).first()
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
     return ticket
 
 @router.post("/", response_model=TicketRead, status_code=201)
-def create_new_ticket(body: TicketCreate, db: Session = Depends(get_db)):
+def create_new_ticket(
+    body: TicketCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_role(current_user, *MANAGER_ROLES)
     max_pos = (
         db.query(models.Ticket.position)
         .filter(models.Ticket.status == body.status)
@@ -74,13 +89,17 @@ def create_new_ticket(body: TicketCreate, db: Session = Depends(get_db)):
         .first()
     )
     next_pos = (max_pos[0] + 1) if max_pos else 0
+    if body.assignee_id is not None:
+        assignee = db.query(models.User).filter(models.User.id == body.assignee_id).first()
+        if not assignee:
+            raise HTTPException(status_code=400, detail="Assignee not found")
     ticket = models.Ticket(
         title=body.title,
         description=body.description,
         status=body.status,
         category=body.category,
         room=body.room,
-        assignee=body.assignee,
+        assignee_id=body.assignee_id,
         position=next_pos,
     )
     db.add(ticket)
@@ -108,39 +127,60 @@ def create_new_ticket(body: TicketCreate, db: Session = Depends(get_db)):
     return ticket
 
 @router.patch("/{ticket_id}", response_model=TicketRead)
-def update_existing_ticket(ticket_id: int, body: TicketUpdate, db: Session = Depends(get_db)):
+def update_existing_ticket(
+    ticket_id: int,
+    body: TicketUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_role(current_user, *MANAGER_ROLES)
     ticket = db.query(models.Ticket).filter(models.Ticket.id == ticket_id).first()
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
-    if body.title is not None:
-        ticket.title = body.title
-    if body.description is not None:
-        ticket.description = body.description
-    if body.status is not None and body.status != ticket.status:
+    data = body.model_dump(exclude_unset=True)
+    if "title" in data:
+        ticket.title = data["title"]
+    if "description" in data:
+        ticket.description = data["description"]
+    if "status" in data and data["status"] != ticket.status:
         max_pos = (
             db.query(models.Ticket.position)
-            .filter(models.Ticket.status == body.status)
+            .filter(models.Ticket.status == data["status"])
             .order_by(models.Ticket.position.desc())
             .first()
         )
         next_pos = (max_pos[0] + 1) if max_pos else 0
-        ticket.status = body.status
+        ticket.status = data["status"]
         ticket.position = next_pos
-    if body.category is not None:
-        ticket.category = body.category
-    if body.room is not None:
-        ticket.room = body.room
-    if body.assignee is not None:
-        ticket.assignee = body.assignee
-    if body.position is not None:
-        ticket.position = body.position
+    if "category" in data:
+        ticket.category = data["category"]
+    if "room" in data:
+        ticket.room = data["room"]
+    if "assignee_id" in data:
+        assignee_id = data["assignee_id"]
+        if assignee_id is not None:
+            assignee = (
+                db.query(models.User)
+                .filter(models.User.id == assignee_id)
+                .first()
+            )
+            if not assignee:
+                raise HTTPException(status_code=400, detail="Assignee not found")
+        ticket.assignee_id = assignee_id
+    if "position" in data:
+        ticket.position = data["position"]
     ticket.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(ticket)
     return ticket
 
 @router.delete("/{ticket_id}", status_code=204)
-def delete_existing_ticket(ticket_id: int, db: Session = Depends(get_db)):
+def delete_existing_ticket(
+    ticket_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_role(current_user, *MANAGER_ROLES)
     ticket = db.query(models.Ticket).filter(models.Ticket.id == ticket_id).first()
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
@@ -148,7 +188,13 @@ def delete_existing_ticket(ticket_id: int, db: Session = Depends(get_db)):
     db.commit()
 
 @router.post("/{ticket_id}/comments", response_model=CommentRead, status_code=201)
-def add_ticket_comment(ticket_id: int, body: CommentCreate, db: Session = Depends(get_db)):
+def add_ticket_comment(
+    ticket_id: int,
+    body: CommentCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_role(current_user, *MANAGER_ROLES)
     exists = db.query(models.Ticket.id).filter(models.Ticket.id == ticket_id).first()
     if not exists:
         raise HTTPException(status_code=404, detail="Ticket not found")
@@ -163,7 +209,14 @@ def add_ticket_comment(ticket_id: int, body: CommentCreate, db: Session = Depend
     return comment
 
 @router.patch("/{ticket_id}/comments/{comment_id}", response_model=CommentRead)
-def update_ticket_comment(ticket_id: int, comment_id: int, body: CommentUpdate, db: Session = Depends(get_db)):
+def update_ticket_comment(
+    ticket_id: int,
+    comment_id: int,
+    body: CommentUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_role(current_user, *MANAGER_ROLES)
     comment = (
         db.query(models.Comment)
         .filter(models.Comment.id == comment_id, models.Comment.ticket_id == ticket_id)
@@ -180,7 +233,13 @@ def update_ticket_comment(ticket_id: int, comment_id: int, body: CommentUpdate, 
     return comment
 
 @router.delete("/{ticket_id}/comments/{comment_id}", status_code=204)
-def delete_ticket_comment(ticket_id: int, comment_id: int, db: Session = Depends(get_db)):
+def delete_ticket_comment(
+    ticket_id: int,
+    comment_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_role(current_user, *MANAGER_ROLES)
     comment = (
         db.query(models.Comment)
         .filter(models.Comment.id == comment_id, models.Comment.ticket_id == ticket_id)
@@ -192,7 +251,13 @@ def delete_ticket_comment(ticket_id: int, comment_id: int, db: Session = Depends
     db.commit()
 
 @router.post("/{ticket_id}/tasks", response_model=TaskRead, status_code=201)
-def add_ticket_task(ticket_id: int, body: TaskCreate, db: Session = Depends(get_db)):
+def add_ticket_task(
+    ticket_id: int,
+    body: TaskCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_role(current_user, *MANAGER_ROLES)
     exists = db.query(models.Ticket.id).filter(models.Ticket.id == ticket_id).first()
     if not exists:
         raise HTTPException(status_code=404, detail="Ticket not found")
@@ -216,7 +281,14 @@ def add_ticket_task(ticket_id: int, body: TaskCreate, db: Session = Depends(get_
     return task
 
 @router.patch("/{ticket_id}/tasks/{task_id}", response_model=TaskRead)
-def update_ticket_task(ticket_id: int, task_id: int, body: TaskUpdate, db: Session = Depends(get_db)):
+def update_ticket_task(
+    ticket_id: int,
+    task_id: int,
+    body: TaskUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_role(current_user, *MANAGER_ROLES)
     task = (
         db.query(models.Task)
         .filter(models.Task.ticket_id == ticket_id, models.Task.id == task_id)
@@ -237,7 +309,13 @@ def update_ticket_task(ticket_id: int, task_id: int, body: TaskUpdate, db: Sessi
     return task
 
 @router.delete("/{ticket_id}/tasks/{task_id}", status_code=204)
-def delete_ticket_task(ticket_id: int, task_id: int, db: Session = Depends(get_db)):
+def delete_ticket_task(
+    ticket_id: int,
+    task_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_role(current_user, *MANAGER_ROLES)
     task = (
         db.query(models.Task)
         .filter(models.Task.ticket_id == ticket_id, models.Task.id == task_id)
