@@ -7,6 +7,7 @@ from pydantic import ValidationError
 from app.api.v1.auth import router as auth_router
 from app.api.v1.tickets import router as tickets_router
 from app.core import get_settings
+from app.db import run_migrations
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,11 @@ def validate_configuration() -> None:
     except ValidationError as exc:  # pragma: no cover - defensive logging
         logger.critical("Invalid application configuration: %s", exc)
         raise RuntimeError("Invalid application configuration") from exc
+
+
+@app.on_event("startup")
+def apply_database_migrations() -> None:
+    run_migrations()
 
 
 @app.get("/health")
