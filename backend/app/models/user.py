@@ -32,3 +32,13 @@ class User(Base):
         back_populates="assignee",
         foreign_keys="Ticket.assignee_id",
     )
+    comments = relationship(
+        "Comment",
+        back_populates="author_user",
+        foreign_keys="Comment.author_id",
+    )
+    created_tasks = relationship(
+        "Task",
+        back_populates="created_by",
+        foreign_keys="Task.created_by_id",
+    )
