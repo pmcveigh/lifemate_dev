@@ -1,6 +1,8 @@
 """add users table"""
 
+import os
 from datetime import datetime
+from typing import Dict
 
 import sqlalchemy as sa
 from alembic import op
@@ -14,6 +16,26 @@ depends_on = None
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 user_role_enum = sa.Enum("global_admin", "home_admin", "home_user", name="userrole")
+
+
+def _get_required_secret(name: str) -> str:
+    value = os.getenv(name)
+    if not value:
+        raise RuntimeError(
+            f"Environment variable '{name}' must be set before applying migration {revision}."
+        )
+    return value
+
+
+def _build_seed_user(username: str, role: str, env_var: str, now: datetime) -> Dict[str, object]:
+    password = _get_required_secret(env_var)
+    return {
+        "username": username,
+        "role": role,
+        "hashed_password": pwd_context.hash(password),
+        "created_at": now,
+        "updated_at": now,
+    }
 
 
 def upgrade() -> None:
@@ -53,27 +75,9 @@ def upgrade() -> None:
     op.bulk_insert(
         users_table,
         [
-            {
-                "username": "globaladmin",
-                "role": "global_admin",
-                "hashed_password": pwd_context.hash("ChangeMe123!"),
-                "created_at": now,
-                "updated_at": now,
-            },
-            {
-                "username": "phil",
-                "role": "home_admin",
-                "hashed_password": pwd_context.hash("PhilRocks123!"),
-                "created_at": now,
-                "updated_at": now,
-            },
-            {
-                "username": "courtney",
-                "role": "home_user",
-                "hashed_password": pwd_context.hash("CourtneySecure123!"),
-                "created_at": now,
-                "updated_at": now,
-            },
+            _build_seed_user("globaladmin", "global_admin", "GLOBAL_ADMIN_PASSWORD", now),
+            _build_seed_user("phil", "home_admin", "HOME_ADMIN_PASSWORD", now),
+            _build_seed_user("courtney", "home_user", "HOME_USER_PASSWORD", now),
         ],
     )
 

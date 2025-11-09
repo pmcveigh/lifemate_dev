@@ -1,7 +1,14 @@
+import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import ValidationError
+
 from app.api.v1.auth import router as auth_router
 from app.api.v1.tickets import router as tickets_router
+from app.core import get_settings
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
@@ -20,6 +27,16 @@ app.add_middleware(
 
 app.include_router(auth_router)
 app.include_router(tickets_router)
+
+
+@app.on_event("startup")
+def validate_configuration() -> None:
+    try:
+        get_settings()
+    except ValidationError as exc:  # pragma: no cover - defensive logging
+        logger.critical("Invalid application configuration: %s", exc)
+        raise RuntimeError("Invalid application configuration") from exc
+
 
 @app.get("/health")
 def health():

@@ -24,6 +24,36 @@ MANAGER_ROLES = (UserRole.home_admin, UserRole.global_admin)
 
 router = APIRouter(prefix="/tickets", tags=["tickets"])
 
+
+def _is_manager(user: User) -> bool:
+    return user.role in MANAGER_ROLES
+
+
+def _get_ticket_or_404(db: Session, ticket_id: int) -> models.Ticket:
+    ticket = db.query(models.Ticket).filter(models.Ticket.id == ticket_id).first()
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    return ticket
+
+
+def assert_ticket_participant(user: User, ticket: models.Ticket) -> None:
+    if _is_manager(user):
+        return
+    if user.role == UserRole.home_user and ticket.assignee_id == user.id:
+        return
+    raise HTTPException(status_code=403, detail="Forbidden")
+
+
+def assert_comment_editor(user: User, ticket: models.Ticket, comment: models.Comment) -> None:
+    if _is_manager(user):
+        return
+    if user.role == UserRole.home_user:
+        if ticket.assignee_id == user.id:
+            return
+        if comment.author and comment.author == user.username:
+            return
+    raise HTTPException(status_code=403, detail="Forbidden")
+
 def _ticket_query(db: Session):
     return db.query(models.Ticket).options(
         joinedload(models.Ticket.comments),
@@ -196,10 +226,8 @@ def add_ticket_comment(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    require_role(current_user, *MANAGER_ROLES)
-    exists = db.query(models.Ticket.id).filter(models.Ticket.id == ticket_id).first()
-    if not exists:
-        raise HTTPException(status_code=404, detail="Ticket not found")
+    ticket = _get_ticket_or_404(db, ticket_id)
+    assert_ticket_participant(current_user, ticket)
     comment = models.Comment(
         ticket_id=ticket_id,
         author=body.author if body.author is not None else current_user.username,
@@ -262,10 +290,8 @@ def add_ticket_task(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    require_role(current_user, *MANAGER_ROLES)
-    exists = db.query(models.Ticket.id).filter(models.Ticket.id == ticket_id).first()
-    if not exists:
-        raise HTTPException(status_code=404, detail="Ticket not found")
+    ticket = _get_ticket_or_404(db, ticket_id)
+    assert_ticket_participant(current_user, ticket)
     max_pos = (
         db.query(models.Task.position)
         .filter(models.Task.ticket_id == ticket_id)
