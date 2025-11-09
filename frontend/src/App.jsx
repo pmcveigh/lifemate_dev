@@ -1,6 +1,12 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
+import Login from "./components/Login.jsx";
+import { useAuth } from "./auth/AuthContext.jsx";
 
-const API_URL = "http://localhost:8000";
+const ROLE_PERMISSIONS = {
+  global_admin: "Full administrative access across homes",
+  home_admin: "Manage tickets for this home",
+  home_user: "View tickets and updates",
+};
 const STATUS_COLUMNS = [
   { key: "backlog", label: "Backlog" },
   { key: "todo", label: "To do" },
@@ -26,6 +32,7 @@ const DANGER_SMALL_BUTTON_STYLE = {
 };
 
 export default function App() {
+  const { apiFetch, initializing, isAuthenticated, user, logout } = useAuth();
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -67,9 +74,50 @@ export default function App() {
   const [editingTask, setEditingTask] = useState(null);
   const [taskActionLoading, setTaskActionLoading] = useState(false);
 
+  const fetchTickets = useCallback(
+    async (query) => {
+      if (!isAuthenticated) {
+        return;
+      }
+      try {
+        setLoading(true);
+        setError("");
+        let endpoint = "/tickets";
+        if (query && query.trim()) {
+          endpoint += `?q=${encodeURIComponent(query.trim())}`;
+        }
+        const res = await apiFetch(endpoint);
+        const data = await res.json();
+        setTickets(data);
+        setSelectedTicket((current) => {
+          if (!current) {
+            return current;
+          }
+          const updated = data.find((t) => t.id === current.id);
+          return updated || null;
+        });
+      } catch (err) {
+        if (err.message !== "unauthorized") {
+          setError(err.message);
+        }
+      } finally {
+        setLoading(false);
+      }
+    },
+    [apiFetch, isAuthenticated]
+  );
+
   useEffect(() => {
-    fetchTickets("");
-  }, []);
+    if (isAuthenticated) {
+      fetchTickets("");
+    } else {
+      setTickets([]);
+      setSelectedTicket(null);
+      setActiveQuery("");
+      setError("");
+      setLoading(false);
+    }
+  }, [fetchTickets, isAuthenticated]);
 
   useEffect(() => {
     if (selectedTicket) {
@@ -84,39 +132,12 @@ export default function App() {
     }
   }, [selectedTicket]);
 
-  async function fetchTickets(query) {
-    try {
-      setLoading(true);
-      setError("");
-      let url = `${API_URL}/tickets`;
-      if (query && query.trim()) {
-        url += `?q=${encodeURIComponent(query.trim())}`;
-      }
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`API error: ${res.status}`);
-      const data = await res.json();
-      setTickets(data);
-      if (selectedTicket) {
-        const updated = data.find((t) => t.id === selectedTicket.id);
-        if (updated) {
-          setSelectedTicket(updated);
-        } else {
-          setSelectedTicket(null);
-        }
-      }
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
   async function handleCreate(e) {
     e.preventDefault();
     setCreateError("");
     setCreating(true);
     try {
-      const res = await fetch(`${API_URL}/tickets`, {
+      const res = await apiFetch(`/tickets`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -143,7 +164,9 @@ export default function App() {
       setShowCreateModal(false);
       await fetchTickets(activeQuery);
     } catch (err) {
-      setCreateError(err.message);
+      if (err.message !== "unauthorized") {
+        setCreateError(err.message);
+      }
     } finally {
       setCreating(false);
     }
@@ -191,7 +214,7 @@ export default function App() {
     setTicketUpdateError("");
     setTicketUpdateLoading(true);
     try {
-      const res = await fetch(`${API_URL}/tickets/${selectedTicket.id}`, {
+      const res = await apiFetch(`/tickets/${selectedTicket.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -210,7 +233,9 @@ export default function App() {
       setEditingTicket(false);
       await fetchTickets(activeQuery);
     } catch (err) {
-      setTicketUpdateError(err.message);
+      if (err.message !== "unauthorized") {
+        setTicketUpdateError(err.message);
+      }
     } finally {
       setTicketUpdateLoading(false);
     }
@@ -265,8 +290,8 @@ export default function App() {
     setCommentActionError("");
     setCommentActionLoading(true);
     try {
-      const res = await fetch(
-        `${API_URL}/tickets/${selectedTicket.id}/comments/${editingComment.id}`,
+      const res = await apiFetch(
+        `/tickets/${selectedTicket.id}/comments/${editingComment.id}`,
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -283,7 +308,9 @@ export default function App() {
       setEditingComment(null);
       await fetchTickets(activeQuery);
     } catch (err) {
-      setCommentActionError(err.message);
+      if (err.message !== "unauthorized") {
+        setCommentActionError(err.message);
+      }
     } finally {
       setCommentActionLoading(false);
     }
@@ -294,8 +321,8 @@ export default function App() {
     setCommentActionError("");
     setCommentActionLoading(true);
     try {
-      const res = await fetch(
-        `${API_URL}/tickets/${selectedTicket.id}/comments/${commentId}`,
+      const res = await apiFetch(
+        `/tickets/${selectedTicket.id}/comments/${commentId}`,
         { method: "DELETE" }
       );
       if (!res.ok) {
@@ -307,7 +334,9 @@ export default function App() {
       }
       await fetchTickets(activeQuery);
     } catch (err) {
-      setCommentActionError(err.message);
+      if (err.message !== "unauthorized") {
+        setCommentActionError(err.message);
+      }
     } finally {
       setCommentActionLoading(false);
     }
@@ -344,8 +373,8 @@ export default function App() {
       } else if (editingTask.eta) {
         payload.eta = new Date(editingTask.eta).toISOString();
       }
-      const res = await fetch(
-        `${API_URL}/tickets/${selectedTicket.id}/tasks/${editingTask.id}`,
+      const res = await apiFetch(
+        `/tickets/${selectedTicket.id}/tasks/${editingTask.id}`,
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -359,7 +388,9 @@ export default function App() {
       setEditingTask(null);
       await fetchTickets(activeQuery);
     } catch (err) {
-      setTaskError(err.message);
+      if (err.message !== "unauthorized") {
+        setTaskError(err.message);
+      }
     } finally {
       setTaskActionLoading(false);
     }
@@ -370,8 +401,8 @@ export default function App() {
     setTaskError("");
     setTaskActionLoading(true);
     try {
-      const res = await fetch(
-        `${API_URL}/tickets/${selectedTicket.id}/tasks/${taskId}`,
+      const res = await apiFetch(
+        `/tickets/${selectedTicket.id}/tasks/${taskId}`,
         { method: "DELETE" }
       );
       if (!res.ok) {
@@ -383,7 +414,9 @@ export default function App() {
       }
       await fetchTickets(activeQuery);
     } catch (err) {
-      setTaskError(err.message);
+      if (err.message !== "unauthorized") {
+        setTaskError(err.message);
+      }
     } finally {
       setTaskActionLoading(false);
     }
@@ -399,17 +432,14 @@ export default function App() {
     setSelectedCommentError("");
     setSelectedCommentLoading(true);
     try {
-      const res = await fetch(
-        `${API_URL}/tickets/${selectedTicket.id}/comments`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            author: selectedCommentAuthor || null,
-            text: selectedCommentText,
-          }),
-        }
-      );
+      const res = await apiFetch(`/tickets/${selectedTicket.id}/comments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          author: selectedCommentAuthor || null,
+          text: selectedCommentText,
+        }),
+      });
       if (!res.ok) {
         const t = await res.text();
         throw new Error(t || `Comment failed: ${res.status}`);
@@ -418,7 +448,9 @@ export default function App() {
       setSelectedCommentText("");
       await fetchTickets(activeQuery);
     } catch (err) {
-      setSelectedCommentError(err.message);
+      if (err.message !== "unauthorized") {
+        setSelectedCommentError(err.message);
+      }
     } finally {
       setSelectedCommentLoading(false);
     }
@@ -440,14 +472,11 @@ export default function App() {
       if (newTaskEta) {
         body.eta = new Date(newTaskEta).toISOString();
       }
-      const res = await fetch(
-        `${API_URL}/tickets/${selectedTicket.id}/tasks`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        }
-      );
+      const res = await apiFetch(`/tickets/${selectedTicket.id}/tasks`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
       if (!res.ok) {
         const t = await res.text();
         throw new Error(t || `Task failed: ${res.status}`);
@@ -456,7 +485,9 @@ export default function App() {
       setNewTaskEta("");
       await fetchTickets(activeQuery);
     } catch (err) {
-      setTaskError(err.message);
+      if (err.message !== "unauthorized") {
+        setTaskError(err.message);
+      }
     } finally {
       setCreatingTask(false);
     }
@@ -465,8 +496,8 @@ export default function App() {
   async function handleToggleTask(task) {
     if (!selectedTicket) return;
     try {
-      const res = await fetch(
-        `${API_URL}/tickets/${selectedTicket.id}/tasks/${task.id}`,
+      const res = await apiFetch(
+        `/tickets/${selectedTicket.id}/tasks/${task.id}`,
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -481,7 +512,9 @@ export default function App() {
       }
       await fetchTickets(activeQuery);
     } catch (err) {
-      setTaskError(err.message);
+      if (err.message !== "unauthorized") {
+        setTaskError(err.message);
+      }
     }
   }
 
@@ -521,7 +554,7 @@ export default function App() {
   async function persistStatusIfChanged(ticketId, oldStatus, newStatus) {
     if (oldStatus === newStatus) return;
     try {
-      const res = await fetch(`${API_URL}/tickets/${ticketId}`, {
+      const res = await apiFetch(`/tickets/${ticketId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: newStatus }),
@@ -531,7 +564,9 @@ export default function App() {
         throw new Error(t || `Status update failed: ${res.status}`);
       }
     } catch (err) {
-      fetchTickets(activeQuery);
+      if (err.message !== "unauthorized") {
+        fetchTickets(activeQuery);
+      }
     }
   }
 
@@ -594,6 +629,17 @@ export default function App() {
     setDraggingTicketId(null);
   }
 
+  if (initializing) {
+    return <div style={{ padding: "1rem" }}>Checking session...</div>;
+  }
+
+  if (!isAuthenticated) {
+    return <Login />;
+  }
+
+  const permissionDescription =
+    ROLE_PERMISSIONS[user?.role] || ROLE_PERMISSIONS.home_user;
+
   if (loading && !tickets.length && !error) {
     return <div style={{ padding: "1rem" }}>Loading tickets...</div>;
   }
@@ -608,6 +654,39 @@ export default function App() {
 
   return (
     <div style={{ padding: "1.5rem", maxWidth: "1200px", margin: "0 auto" }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: "1.5rem",
+          background: "#f3f4f6",
+          borderRadius: "0.75rem",
+          padding: "0.85rem 1.1rem",
+        }}
+      >
+        <div>
+          <div style={{ fontWeight: 600, color: "#111827" }}>
+            Logged in as {user?.username}
+          </div>
+          <div style={{ fontSize: "0.85rem", color: "#4b5563" }}>
+            Role: {user?.role} · Permissions: {permissionDescription}
+          </div>
+        </div>
+        <button
+          onClick={logout}
+          style={{
+            padding: "0.45rem 0.9rem",
+            background: "#b91c1c",
+            color: "white",
+            border: "none",
+            borderRadius: "0.4rem",
+            cursor: "pointer",
+          }}
+        >
+          Sign out
+        </button>
+      </div>
       <div
         style={{
           display: "flex",
