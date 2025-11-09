@@ -25,6 +25,7 @@ class CommentUpdate(BaseModel):
 class CommentRead(CommentBase):
     id: int
     created_at: datetime
+    author_id: Optional[int] = None
 
     model_config = {"from_attributes": True}
 
@@ -45,6 +46,7 @@ class TaskRead(TaskBase):
     id: int
     completed: bool
     position: int
+    created_by_id: Optional[int] = None
 
     model_config = {"from_attributes": True}
 

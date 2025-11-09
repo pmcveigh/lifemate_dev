@@ -134,14 +134,15 @@ def create_new_ticket(
     )
     db.add(ticket)
     db.flush()
+    next_task_pos = 0
     for c in body.comments:
         comment = models.Comment(
             ticket_id=ticket.id,
-            author=c.author,
+            author=c.author if c.author is not None else current_user.username,
+            author_id=current_user.id,
             text=c.text,
         )
         db.add(comment)
-        next_task_pos = 0
     for t in body.tasks:
         task = models.Task(
             ticket_id=ticket.id,
@@ -149,6 +150,7 @@ def create_new_ticket(
             eta=t.eta,
             completed=False,
             position=next_task_pos,
+            created_by_id=current_user.id,
         )
         db.add(task)
         next_task_pos += 1
@@ -228,7 +230,8 @@ def add_ticket_comment(
     assert_ticket_participant(current_user, ticket)
     comment = models.Comment(
         ticket_id=ticket_id,
-        author=body.author,
+        author=body.author if body.author is not None else current_user.username,
+        author_id=current_user.id,
         text=body.text,
     )
     db.add(comment)
@@ -251,8 +254,8 @@ def update_ticket_comment(
     )
     if not comment:
         raise HTTPException(status_code=404, detail="Comment not found")
-    ticket = comment.ticket or _get_ticket_or_404(db, ticket_id)
-    assert_comment_editor(current_user, ticket, comment)
+    if current_user.role not in MANAGER_ROLES and comment.author_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Forbidden")
     if body.author is not None:
         comment.author = body.author
     if body.text is not None:
@@ -268,7 +271,6 @@ def delete_ticket_comment(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    require_role(current_user, *MANAGER_ROLES)
     comment = (
         db.query(models.Comment)
         .filter(models.Comment.id == comment_id, models.Comment.ticket_id == ticket_id)
@@ -276,6 +278,8 @@ def delete_ticket_comment(
     )
     if not comment:
         raise HTTPException(status_code=404, detail="Comment not found")
+    if current_user.role not in MANAGER_ROLES and comment.author_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Forbidden")
     db.delete(comment)
     db.commit()
 
@@ -301,6 +305,7 @@ def add_ticket_task(
         eta=body.eta,
         completed=False,
         position=next_pos,
+        created_by_id=current_user.id,
     )
     db.add(task)
     db.commit()
@@ -322,8 +327,8 @@ def update_ticket_task(
     )
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    ticket = task.ticket or _get_ticket_or_404(db, ticket_id)
-    assert_ticket_participant(current_user, ticket)
+    if current_user.role not in MANAGER_ROLES and task.created_by_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Forbidden")
     if body.text is not None:
         task.text = body.text
     if body.eta is not None:
@@ -343,7 +348,6 @@ def delete_ticket_task(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    require_role(current_user, *MANAGER_ROLES)
     task = (
         db.query(models.Task)
         .filter(models.Task.ticket_id == ticket_id, models.Task.id == task_id)
@@ -351,6 +355,8 @@ def delete_ticket_task(
     )
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
+    if current_user.role not in MANAGER_ROLES and task.created_by_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Forbidden")
     db.delete(task)
     db.commit()
 
